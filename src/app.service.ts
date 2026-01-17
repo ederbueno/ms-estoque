@@ -1,27 +1,15 @@
-import { Injectable, Inject, OnModuleInit } from '@nestjs/common';
-import { ClientKafka } from '@nestjs/microservices';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 
 @Injectable()
-export class AppService implements OnModuleInit {
-  constructor(
-    private prisma: PrismaService,
-    @Inject('KAFKA_SERVICE') private readonly kafkaClient: ClientKafka,
-  ) {}
-
-  async onModuleInit() {
-    await this.kafkaClient.connect();
-    console.log('📡 Estoque conectado ao Kafka!');
-  }
-
-  
+export class AppService {
+  constructor(private prisma: PrismaService) {}
 
   async baixarEstoque(data: any) {
     const { itens, clienteId, vendaId, cep } = data;
 
     try {
       await this.prisma.$transaction(async (tx) => {
-
         console.log(`🧐 Processando Venda [${vendaId}] para Cliente: ${clienteId}`);
 
         if (!itens || itens.length === 0) throw new Error('VENDA_SEM_ITENS');
@@ -44,57 +32,40 @@ export class AppService implements OnModuleInit {
         }
       });
 
-      this.kafkaClient.emit('estoque_confirmado', {
-        vendaId,
-        clienteId,
-        cep,
-        itens,
-        status: 'RESERVADO'
-      });
-      console.log(`✅ Sucesso: Venda [${vendaId}] reservada e enviada para Logística.`);
+      console.log(`✅ Sucesso: Venda [${vendaId}] reservada.`);
+      return { success: true, vendaId };
 
-    } catch (err) {
-      // --- TRATAMENTO DE ERRO E SAGA DE CANCELAMENTO ---
+    } catch (err: any) {
       console.error(`❌ Falha no Estoque para Venda [${vendaId}]: ${err.message}`);
-      this.kafkaClient.emit('venda_cancelada', {
-        vendaId: vendaId || 'N/A',
-        motivo: err.message,
-      });
+      throw err;
     }
   }
 
-async estornarEstoque(data: any) {
-  // Ajustado para aceitar tanto 'produtos' quanto 'itens' (compatibilidade)
-  const itensParaEstornar = data.produtos || data.itens;
-  const { vendaId } = data;
+  async estornarEstoque(data: any) {
+    const itensParaEstornar = data.produtos || data.itens;
+    const { vendaId } = data;
 
-  console.log(
-    `🔙 SAGA REVERSA: Devolvendo itens da Venda [${vendaId}]`,
-  );
+    console.log(`🔙 SAGA REVERSA: Devolvendo itens da Venda [${vendaId}]`);
 
-  try {
-    await this.prisma.$transaction(async (tx) => {
-      for (const item of itensParaEstornar) {
-        await tx.produto.update({
-          where: { id: item.produtoId },
-          data: {
-            // Se o seu campo no banco for 'quantidade', mantemos assim. 
-            // Se for 'estoque', mude o nome abaixo:
-            quantidade: { increment: item.quantidade },
-            updatedAt: new Date(),
-          },
-        });
-        console.log(
-          `🔄 Item ${item.produtoId} devolvido ao estoque.`,
-        );
-      }
-    });
-    console.log(`✅ Estorno concluído para Venda [${vendaId}].`);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-    console.error(
-      `❌ Erro crítico no estorno da Venda [${vendaId}]: ${msg}`,
-    );
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        for (const item of itensParaEstornar) {
+          await tx.produto.update({
+            where: { id: item.produtoId },
+            data: {
+              quantidade: { increment: item.quantidade },
+              updatedAt: new Date(),
+            },
+          });
+          console.log(`🔄 Item ${item.produtoId} devolvido ao estoque.`);
+        }
+      });
+      console.log(`✅ Estorno concluído para Venda [${vendaId}].`);
+      return { success: true, vendaId };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro desconhecido';
+      console.error(`❌ Erro crítico no estorno da Venda [${vendaId}]: ${msg}`);
+      throw err;
+    }
   }
-}
 }

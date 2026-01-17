@@ -9,7 +9,11 @@ generator client {
 
 model Produto {
   id         String   @id @default(uuid())
+  codigo     String?
   nome       String
+  categoria  String   @default("Outros")
   quantidade Int
+  preco      Float?
   updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
 }

@@ -33,6 +33,9 @@ export class ProdutoService {
       data: {
         nome: data.nome,
         quantidade: data.quantidade,
+        codigo: data.codigo,
+        categoria: data.categoria || "Outros",
+        preco: data.preco,
       },
     });
   }
@@ -49,6 +52,9 @@ export class ProdutoService {
       data: {
         nome: data.nome,
         quantidade: data.quantidade,
+        codigo: data.codigo,
+        categoria: data.categoria,
+        preco: data.preco,
       },
     });
   }

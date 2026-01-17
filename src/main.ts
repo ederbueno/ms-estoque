@@ -4,22 +4,11 @@ import { AppModule } from './app.module';
 import { Partitioners } from 'kafkajs';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
+import { Logger } from '@nestjs/common';
 
 async function bootstrap() {
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
-    transport: Transport.KAFKA,
-    options: {
-      client: {
-        brokers: [process.env.KAFKA_BROKER || 'localhost:9094'],
-      },
-      producer: {
-        createPartitioner: Partitioners.LegacyPartitioner,
-      },
-      consumer: {
-        groupId: 'estoque-consumer', 
-      },
-    },
-    // Injetando o Winston aqui:
+  // Create the main HTTP application, passing the Winston logger configuration
+  const app = await NestFactory.create(AppModule, {
     logger: WinstonModule.createLogger({
       transports: [
         new winston.transports.Console({
@@ -35,11 +24,33 @@ async function bootstrap() {
       ],
     }),
   });
+
+  // Connect the Kafka microservice for hybrid functionality
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: [process.env.KAFKA_BROKER || 'localhost:9094'],
+      },
+      producer: {
+        createPartitioner: Partitioners.LegacyPartitioner,
+      },
+      consumer: {
+        groupId: 'estoque-consumer',
+      },
+    },
+  });
+
+  // Start all microservices
+  await app.startAllMicroservices();
+
+  // Start the HTTP server
+  const port = process.env.PORT || 3003;
+  await app.listen(port);
   
-  await app.listen();
-  
-  // Usando o Logger do Nest (que agora aponta para o Winston) para a mensagem inicial
-  const logger = new (require('@nestjs/common').Logger)('Bootstrap');
-  logger.log('📦 MS ESTOQUE RODANDO APENAS COMO CONSUMIDOR KAFKA');
+  // Use the application's logger
+  const logger = new Logger('Bootstrap');
+  logger.log(`🚀 MS ESTOQUE (HTTP Server) is running on port ${port}`);
+  logger.log('📦 MS ESTOQUE is also connected to Kafka as a consumer');
 }
 bootstrap();

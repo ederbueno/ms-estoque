@@ -14,6 +14,8 @@ export class AppService implements OnModuleInit {
     console.log('📡 Estoque conectado ao Kafka!');
   }
 
+  
+
   async baixarEstoque(data: any) {
     const { itens, clienteId, vendaId, cep } = data;
 

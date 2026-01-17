@@ -1,9 +1,28 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { ClientKafka } from '@nestjs/microservices';
 import { PrismaService } from './prisma.service';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
-export class AppService {
-  constructor(private prisma: PrismaService) {}
+export class AppService implements OnModuleInit {
+  constructor(
+    private prisma: PrismaService,
+    @Inject('KAFKA_SERVICE') private readonly kafkaClient: ClientKafka,
+  ) {}
+
+  async onModuleInit() {
+    await this.kafkaClient.connect();
+  }
+
+  private async emitEvento(topico: string, payload: any) {
+    try {
+      await firstValueFrom(this.kafkaClient.emit(topico, payload));
+      console.log(`📨 Evento Kafka emitido: ${topico}`);
+    } catch (error: unknown) {
+      const mensagem = error instanceof Error ? error.message : 'Erro desconhecido';
+      console.error(`❌ Falha ao emitir evento Kafka (${topico}): ${mensagem}`);
+    }
+  }
 
   async baixarEstoque(data: any) {
     const { itens, clienteId, vendaId, cep } = data;
@@ -33,10 +52,25 @@ export class AppService {
       });
 
       console.log(`✅ Sucesso: Venda [${vendaId}] reservada.`);
+
+      await this.emitEvento('estoque_reservado', {
+        vendaId,
+        clienteId,
+        itens,
+      });
+
       return { success: true, vendaId };
 
     } catch (err: any) {
       console.error(`❌ Falha no Estoque para Venda [${vendaId}]: ${err.message}`);
+
+      await this.emitEvento('estoque_falhou', {
+        vendaId,
+        clienteId,
+        itens,
+        motivo: err?.message || 'ERRO_ESTOQUE',
+      });
+
       throw err;
     }
   }
@@ -61,6 +95,12 @@ export class AppService {
         }
       });
       console.log(`✅ Estorno concluído para Venda [${vendaId}].`);
+
+      await this.emitEvento('estoque_estornado', {
+        vendaId,
+        itens: itensParaEstornar,
+      });
+
       return { success: true, vendaId };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
